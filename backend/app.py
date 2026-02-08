@@ -1,5 +1,6 @@
 from flask import Flask, Blueprint, request, jsonify
 from pymongo import MongoClient
+import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 import datetime
@@ -35,6 +36,13 @@ weather_forecast = requests.get("https://api.open-meteo.com/v1/forecast", {
         "cloud_cover"
     ])
 }).json()
+hourly = weather_forecast["hourly"]
+weather_df = pd.DataFrame({
+    "datetime": pd.to_datetime(hourly["time"]),  # Open-Meteo returns ISO strings
+    "temperature": hourly["temperature_2m"],
+    "precipitation": hourly["precipitation"],
+    "cloud_cover": hourly["cloud_cover"],
+}).set_index("datetime").sort_index()
 
 def token_required(f):
     @wraps(f)
@@ -172,5 +180,13 @@ def upload_image(current_user):
             print(f"Error uploading image: {e}")
             return jsonify({"message": "Error uploading image"}), 500
     return None
+
+@api.get("/predict")
+def predict():
+    current_hour = datetime.datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+    row = weather_df.loc[current_hour]
+    return predictor.predict(
+        row["temperature"], row["precipitation"], row["cloud_cover"], current_hour.hour, current_hour.weekday()
+    )
 
 app.register_blueprint(api, url_prefix="/api/v1")
