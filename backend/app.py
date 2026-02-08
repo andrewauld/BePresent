@@ -5,14 +5,18 @@ import jwt
 import datetime
 import os
 from functools import wraps
+import certifi
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
 api = Blueprint("api", __name__)
 
-client = MongoClient(os.environ["MONGODB_URI"])
+client = MongoClient(os.environ["MONGODB_URI"], tls=True, tlsCAFile=certifi.where())
 db = client["CoreSystem"]
 users_collection = db["users"]
+modules_collection = db["modules"]
+module_participants_collection = db["module_participants"]
+lecture_attendance_collection = db["lecture_attendance"]
 
 def token_required(f):
     @wraps(f)
@@ -90,4 +94,26 @@ def login():
 
     return jsonify({'token': token})
 
+@api.post("/join_module")
+@token_required
+def join_module(user):
+    data = request.get_json(silent=True) or {}
+    module_code = data.get("module_code") or ""
+
+    if not module_code:
+        return jsonify({"message": "Module code required"}), 400
+
+    module = modules_collection.find_one({"code": module_code}, {"_id": 1, "code": 1})
+
+    if not module:
+        return jsonify({"message": "Module not found"}), 404
+
+    already_joined = module_participants_collection.find_one({"module_id": str(module["_id"]), "user_id": str(user["_id"])})
+    if already_joined:
+        return jsonify({"message": "Already joined module"}), 400
+
+    module_participants_collection.insert_one({"module_id": str(module["_id"]), "user_id": str(user["_id"]), "points": 0})
+    return jsonify({"message": "Successfully joined module"}), 201
+
 app.register_blueprint(api, url_prefix="/api/v1")
+    
