@@ -37,7 +37,7 @@ export const getLeaderboard = async () => {
 };
 
 export const getAttendanceHistory = async () => {
-    const response = await api.get('/attendance/history');
+    const response = await api.get('/attendance_history');
     return response.data;
 };
 

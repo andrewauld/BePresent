@@ -42,7 +42,7 @@ const WeeklyLog = ({ history }) => {
 
     return (
         <div className="bg-white rounded-2xl shadow-sm p-4 h-full">
-            <h2 className="text-md font-bold mb-3">Streak</h2>
+            <h2 className="text-md font-bold mb-3">Weekly Attendance Log</h2>
             <div className="grid grid-cols-5 gap-1">
                 {days.map((item, index) => (
                     <motion.div
