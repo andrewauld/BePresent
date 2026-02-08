@@ -30,7 +30,7 @@ const Login = () => {
         <div className="flex flex-col items-center justify-center min-h-screen p-6 bg-white">
             <div className="w-full max-w-sm flex flex-col items-center">
                 <img src={logo} alt="BePresent Logo" className="w-24 h-24 mb-6" />
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">BePresent</h1>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">BeePresent</h1>
                 <p className="text-gray-500 mb-8 text-center">Your attendance, simplified.</p>
 
                 {error && <div className="text-red-500 text-sm mb-4">{error}</div>}

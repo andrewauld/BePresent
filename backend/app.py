@@ -220,7 +220,8 @@ def get_attendance_history(current_user):
 
 
 @api.get("/images/<path:filename>")
-def get_image(filename):
+@token_required
+def get_image(current_user, filename):
     try:
         storage_client = storage.Client.from_service_account_json(GCP_CREDENTIALS_FILE_PATH)
 
@@ -320,13 +321,13 @@ def retrieve_leaderboard(current_user):
     ])
 
     leaderboard_entries = list(lecture_attendances_collection.aggregate(pipeline))
+
     leaderboard = []
     for entry in leaderboard_entries:
         user = users_collection.find_one(
             {"_id": ObjectId(entry["_id"])},
             {"username": 1, "email": 1}
         )
-
         if user:
             leaderboard.append({
                 "username": user["username"],
