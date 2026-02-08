@@ -2,16 +2,28 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logo from '../assets/logo.png';
 
+import { login } from '../services/api';
+
 const Login = () => {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
     const navigate = useNavigate();
 
-    const handleLogin = (e) => {
+    const handleLogin = async (e) => {
         e.preventDefault();
-        // In a real app, we would validate credentials here.
-        // For prototype, just redirect to home.
-        navigate('/');
+        setError('');
+        setIsLoading(true);
+        try {
+            const data = await login(email, password);
+            localStorage.setItem('token', data.token);
+            navigate('/');
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to login');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return (
@@ -20,6 +32,8 @@ const Login = () => {
                 <img src={logo} alt="BePresent Logo" className="w-24 h-24 mb-6" />
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">BePresent</h1>
                 <p className="text-gray-500 mb-8 text-center">Your attendance, simplified.</p>
+
+                {error && <div className="text-red-500 text-sm mb-4">{error}</div>}
 
                 <form onSubmit={handleLogin} className="w-full space-y-4">
                     <div>
@@ -49,7 +63,7 @@ const Login = () => {
                         type="submit"
                         className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-3.5 rounded-lg transition-all shadow-md active:scale-95 mt-4"
                     >
-                        Log In
+                        {isLoading ? 'Logging in...' : 'Log In'}
                     </button>
                 </form>
 

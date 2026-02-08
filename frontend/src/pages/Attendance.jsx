@@ -1,10 +1,31 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Camera, X, Check, Users } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { uploadImage, logAttendance, getModules } from '../services/api';
 
 const Attendance = () => {
     const [showCamera, setShowCamera] = useState(false);
     const [isCheckedIn, setIsCheckedIn] = useState(false);
+    const [modules, setModules] = useState([]);
+    const [selectedModule, setSelectedModule] = useState('');
+    const [loadingModules, setLoadingModules] = useState(true);
+
+    useEffect(() => {
+        const fetchModules = async () => {
+            try {
+                const data = await getModules();
+                setModules(data.modules);
+                if (data.modules.length > 0) {
+                    setSelectedModule(data.modules[0].code);
+                }
+            } catch (error) {
+                console.error("Failed to fetch modules", error);
+            } finally {
+                setLoadingModules(false);
+            }
+        };
+        fetchModules();
+    }, []);
 
     const [classmates, setClassmates] = useState([
         { id: 1, name: "Sarah J.", avatar: "https://i.pravatar.cc/150?u=sarah", time: "09:55 AM" },
@@ -14,17 +35,87 @@ const Attendance = () => {
         { id: 5, name: "James R.", avatar: "https://i.pravatar.cc/150?u=james", time: "10:04 AM" },
     ]);
 
-    const handleCapture = () => {
-        // Simulate capture delay
-        setTimeout(() => {
+    const [isUploading, setIsUploading] = useState(false);
+    const [error, setError] = useState('');
+    const videoRef = useRef(null);
+    const [stream, setStream] = useState(null);
+
+    // Stop camera when component unmounts or modal closes
+    useEffect(() => {
+        return () => {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [stream]);
+
+    const startCamera = async () => {
+        try {
+            const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            setStream(mediaStream);
+            if (videoRef.current) {
+                videoRef.current.srcObject = mediaStream;
+            }
+        } catch (err) {
+            console.error("Error accessing camera:", err);
+            setError("Could not access camera. Please allow permissions.");
+        }
+    };
+
+    const handleCameraOpen = () => {
+        setShowCamera(true);
+        setError('');
+        startCamera();
+    };
+
+    const handleCameraClose = () => {
+        setShowCamera(false);
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            setStream(null);
+        }
+    };
+
+    const handleCapture = async () => {
+        if (!videoRef.current) return;
+
+        setIsUploading(true);
+        setError('');
+
+        try {
+            // Capture image from video stream
+            const canvas = document.createElement('canvas');
+            canvas.width = videoRef.current.videoWidth;
+            canvas.height = videoRef.current.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(videoRef.current, 0, 0);
+
+            // Convert to blob/file
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg'));
+            const file = new File([blob], "attendance_capture.jpg", { type: "image/jpeg" });
+
+            // 1. Upload Image
+            const uploadRes = await uploadImage(file);
+            const imageId = uploadRes.uuid;
+
+            // 2. Log Attendance
+            if (!selectedModule) throw new Error("Please select a module");
+            await logAttendance(selectedModule, imageId);
+
             setIsCheckedIn(true);
-            setShowCamera(false);
-            // Add current user to list
+            handleCameraClose();
+
+            // Add current user to list (simulated for immediate feedback)
             setClassmates(prev => [
-                { id: 99, name: "You", avatar: "https://i.pravatar.cc/150?u=andrew", time: "Now" },
+                { id: 99, name: "You", avatar: "https://i.pravatar.cc/150?u=me", time: "Now" },
                 ...prev
             ]);
-        }, 800);
+        } catch (err) {
+            console.error("Attendance error:", err);
+            setError(err.response?.data?.message || "Failed to verified attendance. Try again.");
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     return (
@@ -40,7 +131,26 @@ const Attendance = () => {
                             <Camera size={40} className="text-orange-600" />
                         </div>
 
-                        <h2 className="text-xl font-bold mb-2">CS204: Algorithms</h2>
+                        {loadingModules ? (
+                            <p className="text-sm text-gray-500 mb-4">Loading modules...</p>
+                        ) : (
+                            <div className="mb-6 w-full max-w-xs mx-auto">
+                                <label className="block text-sm font-medium text-gray-700 mb-1 text-left">Select Module</label>
+                                <select
+                                    value={selectedModule}
+                                    onChange={(e) => setSelectedModule(e.target.value)}
+                                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 outline-none"
+                                >
+                                    <option value="" disabled>Select a module</option>
+                                    {modules.map(m => (
+                                        <option key={m.id} value={m.code}>
+                                            {m.code}: {m.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <p className="text-gray-500 mb-8 text-sm">Lecture Hall B, 10:00 AM - 11:00 AM</p>
 
                         <p className="text-orange-600 font-medium text-sm mb-6 bg-orange-50 py-2 px-4 rounded-lg inline-block">
@@ -48,7 +158,7 @@ const Attendance = () => {
                         </p>
 
                         <button
-                            onClick={() => setShowCamera(true)}
+                            onClick={handleCameraOpen}
                             className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-4 px-6 rounded-xl transition-all shadow-lg active:scale-95 flex items-center justify-center gap-2"
                         >
                             <Camera size={20} />
@@ -66,7 +176,7 @@ const Attendance = () => {
                         <Check size={32} strokeWidth={3} />
                     </div>
                     <h2 className="text-xl font-bold text-green-800">Checked In!</h2>
-                    <p className="text-green-600">You're present for CS204.</p>
+                    <p className="text-green-600">You're present for {selectedModule}.</p>
                 </motion.div>
             )}
 
@@ -125,13 +235,26 @@ const Attendance = () => {
                         >
                             <div className="relative bg-gray-900 h-96 flex items-center justify-center">
                                 <button
-                                    onClick={() => setShowCamera(false)}
-                                    className="absolute top-4 right-4 bg-black/20 text-white p-2 rounded-full backdrop-blur-md"
+                                    onClick={handleCameraClose}
+                                    className="absolute top-4 right-4 z-10 bg-black/50 text-white p-2 rounded-full backdrop-blur-md hover:bg-black/70"
                                 >
                                     <X size={24} />
                                 </button>
 
-                                <p className="text-white/50">Camera Preview</p>
+                                {error && (
+                                    <div className="absolute top-4 left-4 right-14 z-10 bg-red-500/80 text-white px-3 py-2 rounded-lg text-xs backdrop-blur-md">
+                                        {error}
+                                    </div>
+                                )}
+
+                                <video
+                                    ref={videoRef}
+                                    autoPlay
+                                    playsInline
+                                    onLoadedMetadata={() => videoRef.current.play()}
+                                    className="absolute inset-0 w-full h-full object-cover"
+                                />
+
                                 <div className="absolute inset-0 border-2 border-white/20 m-8 rounded-2xl pointer-events-none flex items-center justify-center">
                                     <div className="w-64 h-64 border-2 border-orange-400/50 rounded-xl"></div>
                                 </div>
@@ -143,10 +266,12 @@ const Attendance = () => {
 
                                 <button
                                     onClick={handleCapture}
-                                    className="w-16 h-16 rounded-full border-4 border-orange-500 p-1 mx-auto block hover:scale-105 transition-transform"
+                                    disabled={isUploading}
+                                    className={`w-16 h-16 rounded-full border-4 border-orange-500 p-1 mx-auto block transition-transform ${isUploading ? 'opacity-50 cursor-not-allowed' : 'hover:scale-105'}`}
                                 >
-                                    <div className="w-full h-full bg-orange-500 rounded-full"></div>
+                                    <div className={`w-full h-full bg-orange-500 rounded-full ${isUploading ? 'animate-pulse' : ''}`}></div>
                                 </button>
+                                {isUploading && <p className="text-xs text-orange-500 mt-2">Verifying...</p>}
                             </div>
                         </motion.div>
                     </div>

@@ -1,4 +1,5 @@
 from flask import Flask, Blueprint, request, jsonify
+from flask_cors import CORS
 from pymongo import MongoClient
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
@@ -11,6 +12,7 @@ import certifi
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
+CORS(app)
 api = Blueprint("api", __name__)
 
 client = MongoClient(os.environ["MONGODB_URI"], tls=True, tlsCAFile=certifi.where())
@@ -113,7 +115,6 @@ def count_attendance(current_user):
 @api.post("/log_attendance")
 @token_required
 def log_attendance(current_user):
-    # if they are in the module, and they have uploaded a picture, insert a document into collection
     data = request.get_json(silent=True) or {}
     module_code = data.get("module_code")
     image_id = data.get("image_id")
@@ -162,6 +163,30 @@ def log_attendance(current_user):
     })
 
     return jsonify({"message": "Attendance logged successfully"}), 201
+
+
+@api.get("/attendance_history")
+@token_required
+def get_attendance_history(current_user):
+    user_id = str(current_user["_id"])
+    
+    today = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    seven_days_ago = today - datetime.timedelta(days=6)
+    
+    cursor = lecture_attendances_collection.find({
+        "user_id": user_id,
+        "date": {"$gte": seven_days_ago}
+    }).sort("date", 1)
+    
+    history = []
+    for doc in cursor:
+        history.append({
+            "date": doc["date"].isoformat(),
+            "module_id": doc["module_id"],
+            "image_id": doc.get("image_id")
+        })
+        
+    return jsonify({"history": history})
 
 
 @api.get("/images/<path:filename>")
@@ -234,6 +259,20 @@ def join_module(user):
 
     module_participants_collection.insert_one({"module_id": str(module["_id"]), "user_id": str(user["_id"]), "points": 0})
     return jsonify({"message": "Successfully joined module"}), 201
+
+
+@api.get("/modules")
+@token_required
+def get_modules(current_user):
+    modules = list(modules_collection.find({}, {"_id": 1, "code": 1, "name": 1}))
+    result = []
+    for module in modules:
+        result.append({
+            "id": str(module["_id"]),
+            "code": module["code"],
+            "name": module.get("name", "")
+        })
+    return jsonify({"modules": result})
 
 @api.get("/retrieve_leaderboard")
 @token_required
