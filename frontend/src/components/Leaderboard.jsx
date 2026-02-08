@@ -1,12 +1,9 @@
 import { motion } from 'framer-motion';
 import { Trophy } from 'lucide-react';
 
-const Leaderboard = () => {
-    const leaders = [
-        { id: 1, name: "Sarah J.", points: 1250, rank: 1, avatar: "https://i.pravatar.cc/150?u=sarah" },
-        { id: 2, name: "Mike T.", points: 1100, rank: 2, avatar: "https://i.pravatar.cc/150?u=mike" },
-        { id: 3, name: "Emma W.", points: 950, rank: 3, avatar: "https://i.pravatar.cc/150?u=emma" },
-    ];
+const Leaderboard = ({ leaders }) => {
+    // Fallback if no leaders provided yet
+    if (!leaders) leaders = [];
 
     return (
         <div className="bg-white rounded-2xl shadow-sm p-4 h-full">

@@ -1,4 +1,6 @@
+from bson import ObjectId
 from flask import Flask, Blueprint, request, jsonify
+from flask_cors import CORS
 from pymongo import MongoClient
 import pandas as pd
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -15,6 +17,7 @@ import predictor
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
+CORS(app)
 api = Blueprint("api", __name__)
 
 client = MongoClient(os.environ["MONGODB_URI"], tls=True, tlsCAFile=certifi.where())
@@ -131,6 +134,112 @@ def count_attendance(current_user):
         'attendance_count': attendance_count
     })
 
+@api.post("/log_attendance")
+@token_required
+def log_attendance(current_user):
+    data = request.get_json(silent=True) or {}
+    module_code = data.get("module_code")
+    image_id = data.get("image_id")
+
+    user_id = str(current_user["_id"])
+
+    if not module_code or not image_id:
+        return jsonify({"message": "Missing required parameters"}), 400
+
+    module = modules_collection.find_one({"code": module_code})
+    if not module:
+        return jsonify({"message": "Module not found"}), 404
+    module_id = str(module["_id"])
+
+    participant = module_participants_collection.find_one({"$and": [{"user_id": user_id}, {"module_id": module_id}]})
+    if not participant:
+        return jsonify({"message": "User not enrolled in this module"}), 404
+
+    try:
+        storage_client = storage.Client.from_service_account_json(GCP_CREDENTIALS_FILE_PATH)
+        bucket = storage_client.bucket(GCP_IMAGES_BUCKET_NAME)
+        blob = bucket.blob(image_id)
+
+        if not blob.exists():
+            return jsonify({"message": "Image not found"}), 404
+    except Exception as e:
+        print(f"Error fetching image from GCP: {e}")
+        return jsonify({"message": "Error fetching image"}), 500
+
+    today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + datetime.timedelta(days=1)
+
+    already_logged = lecture_attendances_collection.find_one({
+        "user_id": user_id,
+        "module_id": module_id,
+        "date": {"$gte": today_start, "$lte": today_end}
+    })
+    if already_logged:
+        return jsonify({"message": "Already logged attendance for this module today"}), 409
+
+    lecture_attendances_collection.insert_one({
+        "user_id": user_id,
+        "module_id": module_id,
+        "date": datetime.datetime.utcnow(),
+        "image_id": image_id
+    })
+
+    # Get other classmates who checked in today
+    classmates_cursor = lecture_attendances_collection.find({
+        "module_id": module_id,
+        "date": {"$gte": today_start, "$lte": today_end},
+        "user_id": {"$ne": user_id}  # Exclude self
+    }).sort("date", -1).limit(10)
+
+    classmates = []
+    for doc in classmates_cursor:
+        friend_user = users_collection.find_one({"_id": doc["user_id"]}) # user_id is stored as ObjectId if inserted correctly, but earlier we cast to str. Let's check.
+        # Wait, in the insert above: "user_id": user_id (which is str(current_user["_id"])). So it's a string.
+        # But users_collection uses ObjectId for _id. So we need to query with ObjectId(doc["user_id"]) OR if we stored string, we query string.
+        # The code above says: user_id = str(current_user["_id"]). So we stored a string.
+        # But to find the user details, we need to query users_collection. users_collection keys are ObjectIds.
+        # So we need to convert string back to ObjectId.
+        from bson.objectid import ObjectId
+        friend_user = users_collection.find_one({"_id": ObjectId(doc["user_id"])})
+
+        if friend_user:
+            classmates.append({
+                "id": str(friend_user["_id"]),
+                "name": friend_user.get("username", "Unknown"),
+                "image_id": doc.get("image_id"),
+                "time": doc["date"].strftime("%I:%M %p")
+            })
+
+    return jsonify({
+        "message": "Attendance logged successfully",
+        "classmates": classmates
+    }), 201
+
+
+@api.get("/attendance_history")
+@token_required
+def get_attendance_history(current_user):
+    user_id = str(current_user["_id"])
+
+    today = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    seven_days_ago = today - datetime.timedelta(days=6)
+
+    cursor = lecture_attendances_collection.find({
+        "user_id": user_id,
+        "date": {"$gte": seven_days_ago}
+    }).sort("date", 1)
+
+    history = []
+    for doc in cursor:
+        history.append({
+            "date": doc["date"].isoformat(),
+            "module_id": doc["module_id"],
+            "image_id": doc.get("image_id")
+        })
+
+    return jsonify({"history": history})
+
+
 @api.get("/images/<path:filename>")
 @token_required
 def get_image(current_user, filename):
@@ -180,6 +289,74 @@ def upload_image(current_user):
             print(f"Error uploading image: {e}")
             return jsonify({"message": "Error uploading image"}), 500
     return None
+
+@api.post("/join_module")
+@token_required
+def join_module(user):
+    data = request.get_json(silent=True) or {}
+    module_code = data.get("module_code") or ""
+
+    if not module_code:
+        return jsonify({"message": "Module code required"}), 400
+
+    module = modules_collection.find_one({"code": module_code}, {"_id": 1, "code": 1})
+
+    if not module:
+        return jsonify({"message": "Module not found"}), 404
+
+    already_joined = module_participants_collection.find_one({"module_id": str(module["_id"]), "user_id": str(user["_id"])})
+    if already_joined:
+        return jsonify({"message": "Already joined module"}), 400
+
+    module_participants_collection.insert_one({"module_id": str(module["_id"]), "user_id": str(user["_id"]), "points": 0})
+    return jsonify({"message": "Successfully joined module"}), 201
+
+
+@api.get("/modules")
+@token_required
+def get_modules(current_user):
+    modules = list(modules_collection.find({}, {"_id": 1, "code": 1, "name": 1}))
+    result = []
+    for module in modules:
+        result.append({
+            "id": str(module["_id"]),
+            "code": module["code"],
+            "name": module.get("name", "")
+        })
+    return jsonify({"modules": result})
+
+@api.get("/retrieve_leaderboard")
+@token_required
+def retrieve_leaderboard(current_user):
+    pipeline = []
+    pipeline.extend([
+        {
+            "$group": {
+                "_id": "$user_id",
+                "attendance_count": {"$sum": 1}
+            }
+        },
+        {
+            "$sort": {"attendance_count": -1}
+        }
+    ])
+
+    leaderboard_entries = list(lecture_attendances_collection.aggregate(pipeline))
+
+    leaderboard = []
+    for entry in leaderboard_entries:
+        user = users_collection.find_one(
+            {"_id": ObjectId(entry["_id"])},
+            {"username": 1, "email": 1}
+        )
+        if user:
+            leaderboard.append({
+                "username": user["username"],
+                "email": user["email"],
+                "attendance_count": entry["attendance_count"]
+            })
+
+    return jsonify({"leaderboard": leaderboard})
 
 @api.get("/predict")
 def predict():
