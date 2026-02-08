@@ -110,6 +110,60 @@ def count_attendance(current_user):
         'attendance_count': attendance_count
     })
 
+@api.post("/log_attendance")
+@token_required
+def log_attendance(current_user):
+    # if they are in the module, and they have uploaded a picture, insert a document into collection
+    data = request.get_json(silent=True) or {}
+    module_code = data.get("module_code")
+    image_id = data.get("image_id")
+
+    user_id = str(current_user["_id"])
+
+    if not module_code or not image_id:
+        return jsonify({"message": "Missing required parameters"}), 400
+
+    module = modules_collection.find_one({"code": module_code})
+    if not module:
+        return jsonify({"message": "Module not found"}), 404
+    module_id = str(module["_id"])
+
+    participant = module_participants_collection.find_one({"$and": [{"user_id": user_id}, {"module_id": module_id}]})
+    if not participant:
+        return jsonify({"message": "User not enrolled in this module"}), 404
+
+    try:
+        storage_client = storage.Client.from_service_account_json(GCP_CREDENTIALS_FILE_PATH)
+        bucket = storage_client.bucket(GCP_IMAGES_BUCKET_NAME)
+        blob = bucket.blob(image_id)
+
+        if not blob.exists():
+            return jsonify({"message": "Image not found"}), 404
+    except Exception as e:
+        print(f"Error fetching image from GCP: {e}")
+        return jsonify({"message": "Error fetching image"}), 500
+
+    today_start = datetime.datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + datetime.timedelta(days=1)
+
+    already_logged = lecture_attendances_collection.find_one({
+        "user_id": user_id,
+        "module_id": module_id,
+        "date": {"$gte": today_start, "$lte": today_end}
+    })
+    if already_logged:
+        return jsonify({"message": "Already logged attendance for this module today"}), 409
+
+    lecture_attendances_collection.insert_one({
+        "user_id": user_id,
+        "module_id": module_id,
+        "date": datetime.datetime.utcnow(),
+        "image_id": image_id
+    })
+
+    return jsonify({"message": "Attendance logged successfully"}), 201
+
+
 @api.get("/images/<path:filename>")
 @token_required
 def get_image(current_user, filename):
