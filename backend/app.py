@@ -7,14 +7,18 @@ import os
 from functools import wraps
 from google.cloud import storage
 import uuid
+import certifi
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
 api = Blueprint("api", __name__)
 
-client = MongoClient(os.environ["MONGODB_URI"])
+client = MongoClient(os.environ["MONGODB_URI"], tls=True, tlsCAFile=certifi.where())
 db = client["CoreSystem"]
 users_collection = db["users"]
+modules_collection = db["modules"]
+module_participants_collection = db["module_participants"]
+lecture_attendances_collection = db["lecture_attendances"]
 
 GCP_IMAGES_BUCKET_NAME = "bepresentimages"
 GCP_CREDENTIALS_FILE_PATH = "gcp-credentials.json"
@@ -26,10 +30,10 @@ def token_required(f):
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header.removeprefix("Bearer ").strip()
-
+        
         if not token:
             return jsonify({'message': 'Token is missing!'}), 401
-
+        
         try:
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
             current_user = users_collection.find_one({"username": data['username']})
@@ -37,9 +41,9 @@ def token_required(f):
                 return jsonify({'message': 'Token is invalid!'}), 404
         except:
             return jsonify({'message': 'Token is invalid!'}), 401
-
+        
         return f(current_user, *args, **kwargs)
-
+    
     return decorated
 
 def generate_token(username: str):
@@ -62,6 +66,7 @@ def register():
         {"$or": [{"username": username}, {"email": email}]},
         {"_id": 1, "username": 1, "email": 1},
     )
+
     if existing:
         return jsonify({"message": "User already exists"}), 409
 
@@ -89,19 +94,21 @@ def login():
 
     if not user or not check_password_hash(user["password_hash"], password):
         return jsonify({"message": "Invalid credentials"}), 401
-
+    
     token = generate_token(user["username"])
 
     return jsonify({'token': token})
 
-@api.post("/users/log-attendance")
+@api.get("/count_attendance")
 @token_required
-def log_attendance(user):
-    return jsonify({"message": "Attendance logged successfully!"})
+def count_attendance(current_user):
+    query = {"user_id": current_user["_id"]}
 
-@token_required
-def get_users(user):
-    return jsonify({"users": list(users_collection.find({}, {"_id": 0}))})
+    attendance_count = lecture_attendances_collection.count_documents(query)
+    return jsonify({
+        'username': current_user["username"],
+        'attendance_count': attendance_count
+    })
 
 @api.get("/images/<path:filename>")
 @token_required
