@@ -13,6 +13,7 @@ const Home = () => {
     const [loading, setLoading] = useState(true);
     const [moduleCode, setModuleCode] = useState('');
     const [joinMessage, setJoinMessage] = useState('');
+    const [forecast, setForecast] = useState(null);
 
     useEffect(() => {
         // Decode token to get user info
@@ -28,9 +29,10 @@ const Home = () => {
 
         const fetchData = async () => {
             try {
-                const [leadersData, historyData] = await Promise.all([
+                const [leadersData, historyData, forecastData] = await Promise.all([
                     getLeaderboard(),
-                    getAttendanceHistory()
+                    getAttendanceHistory(),
+                    fetch('http://localhost:5000/api/v1/predict').then(r => r.json())
                 ]);
 
                 // Map leaderboard data to match component expectation
@@ -46,6 +48,7 @@ const Home = () => {
 
                 setLeaders(mappedLeaders.slice(0, 3));
                 setHistory(historyData.history);
+                setForecast(forecastData);
             } catch (error) {
                 console.error("Error fetching home data:", error);
             } finally {
@@ -110,29 +113,38 @@ const Home = () => {
             </div>
 
             {/* Predictive Message */}
-            <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-5 text-white shadow-lg mb-6 relative overflow-hidden"
-            >
-                <div className="relative z-10">
-                    <div className="flex items-center gap-2 mb-2 opacity-90">
-                        <Users size={16} />
-                        <span className="text-xs font-bold uppercase tracking-wider">Attendance Forecast</span>
+            {forecast && (
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="bg-gradient-to-r from-orange-500 to-red-600 rounded-2xl p-5 text-white shadow-lg mb-6 relative overflow-hidden"
+                >
+                    <div className="relative z-10">
+                        <div className="flex items-center gap-2 mb-2 opacity-90">
+                            <Users size={16} />
+                            <span className="text-xs font-bold uppercase tracking-wider">Attendance Forecast</span>
+                        </div>
+                        <h3 className="text-xl font-bold mb-1">
+                            {forecast.prediction.likelihood > 0.7 ? 'High Turnout Expected' :
+                                forecast.prediction.likelihood < 0.4 ? 'Low Turnout Expected' :
+                                    'Moderate Turnout Expected'}
+                        </h3>
+                        <p className="text-sm opacity-90 mb-3">{forecast.description}</p>
+                        <div className="flex items-center gap-2 text-xs bg-white/20 px-3 py-1 rounded-full w-fit">
+                            <CloudRain size={12} />
+                            <span>
+                                {forecast.weather.precipitation > 0 ? 'Rainy' :
+                                    forecast.weather.cloud_cover > 50 ? 'Cloudy' : 'Clear'}, {Math.round(forecast.weather.temperature)}°C
+                            </span>
+                        </div>
                     </div>
-                    <h3 className="text-xl font-bold mb-1">High Turnout Expected</h3>
-                    <p className="text-sm opacity-90 mb-3">85% of students are predicted to attend today despite the rain.</p>
-                    <div className="flex items-center gap-2 text-xs bg-white/20 px-3 py-1 rounded-full w-fit">
-                        <CloudRain size={12} />
-                        <span>Rainy, 12°C</span>
-                    </div>
-                </div>
 
-                {/* Decorative background circles */}
-                <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
-                <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl"></div>
-            </motion.div>
+                    {/* Decorative background circles */}
+                    <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-white/10 rounded-full blur-2xl"></div>
+                    <div className="absolute top-0 right-0 w-24 h-24 bg-white/5 rounded-full blur-xl"></div>
+                </motion.div>
+            )}
 
             {/* Motivational Message */}
             <motion.div

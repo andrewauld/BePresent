@@ -12,6 +12,7 @@ from google.cloud import storage
 import uuid
 import certifi
 import requests
+import google.generativeai as genai
 
 import predictor
 
@@ -360,10 +361,40 @@ def retrieve_leaderboard(current_user):
 
 @api.get("/predict")
 def predict():
+    genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+    
     current_hour = datetime.datetime.utcnow().replace(minute=0, second=0, microsecond=0)
     row = weather_df.loc[current_hour]
-    return predictor.predict(
+    
+    prediction = predictor.predict(
         row["temperature"], row["precipitation"], row["cloud_cover"], current_hour.hour, current_hour.weekday()
     )
+    
+    try:
+        model = genai.GenerativeModel('gemini-pro')
+        prompt = f"""
+Generate a short, engaging 1-sentence description for a student attendance forecast.
+The predicted attendance likelihood is {prediction['likelihood']:.2f} (0-1 scale).
+The weather is {row['temperature']}°C with {row['precipitation']}mm precipitation.
+If likelihood is high (>0.7), be encouraging about the busy campus.
+If likelihood is low (<0.4), mention it might be quiet.
+If rain is high, mention bringing an umbrella.
+Keep it under 20 words.
+        """
+        response = model.generate_content(prompt)
+        description = response.text
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        description = "Forecast unavailable."
+    
+    return jsonify({
+        "prediction": prediction,
+        "description": description,
+        "weather": {
+            "temperature": row["temperature"],
+            "precipitation": row["precipitation"],
+            "cloud_cover": row["cloud_cover"]
+        }
+    })
 
 app.register_blueprint(api, url_prefix="/api/v1")
