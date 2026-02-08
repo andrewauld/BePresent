@@ -160,4 +160,25 @@ def upload_image(current_user):
             return jsonify({"message": "Error uploading image"}), 500
     return None
 
+@api.post("/join_module")
+@token_required
+def join_module(user):
+    data = request.get_json(silent=True) or {}
+    module_code = data.get("module_code") or ""
+
+    if not module_code:
+        return jsonify({"message": "Module code required"}), 400
+
+    module = modules_collection.find_one({"code": module_code}, {"_id": 1, "code": 1})
+
+    if not module:
+        return jsonify({"message": "Module not found"}), 404
+
+    already_joined = module_participants_collection.find_one({"module_id": str(module["_id"]), "user_id": str(user["_id"])})
+    if already_joined:
+        return jsonify({"message": "Already joined module"}), 400
+
+    module_participants_collection.insert_one({"module_id": str(module["_id"]), "user_id": str(user["_id"]), "points": 0})
+    return jsonify({"message": "Successfully joined module"}), 201
+
 app.register_blueprint(api, url_prefix="/api/v1")
