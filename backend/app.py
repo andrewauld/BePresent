@@ -8,6 +8,9 @@ from functools import wraps
 from google.cloud import storage
 import uuid
 import certifi
+import requests
+
+import predictor
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
@@ -22,6 +25,16 @@ lecture_attendances_collection = db["lecture_attendances"]
 
 GCP_IMAGES_BUCKET_NAME = "bepresentimages"
 GCP_CREDENTIALS_FILE_PATH = "gcp-credentials.json"
+
+weather_forecast = requests.get("https://api.open-meteo.com/v1/forecast", {
+    "latitude": 53.8008,
+    "longitude": -0.15491,
+    "hourly": ",".join([
+        "temperature_2m",
+        "precipitation",
+        "cloud_cover"
+    ])
+}).json()
 
 def token_required(f):
     @wraps(f)
