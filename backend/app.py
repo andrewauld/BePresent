@@ -214,4 +214,37 @@ def upload_image(current_user):
             return jsonify({"message": "Error uploading image"}), 500
     return None
 
+@api.get("/retrieve_leaderboard")
+@token_required
+def retrieve_leaderboard(current_user):
+    pipeline = []
+    pipeline.extend([
+        {
+            "$group": {
+                "_id": "$user_id",
+                "attendance_count": {"$sum": 1}
+            }
+        },
+        {
+            "$sort": {"attendance_count": -1}
+        }
+    ])
+
+    leaderboard_entries = list(lecture_attendances_collection.aggregate(pipeline))
+
+    leaderboard = []
+    for entry in leaderboard_entries:
+        user = users_collection.find_one(
+            {"user_id": entry["_id"]},
+            {"username": 1, "email": 1}
+        )
+        if user:
+            leaderboard.append({
+                "username": user["username"],
+                "email": user["email"],
+                "attendance_count": entry["attendance_count"]
+            })
+
+    return jsonify({"leaderboard": leaderboard})
+
 app.register_blueprint(api, url_prefix="/api/v1")
