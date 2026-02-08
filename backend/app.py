@@ -5,14 +5,18 @@ import jwt
 import datetime
 import os
 from functools import wraps
+import certifi
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev_secret_key') # Change this in production!
 api = Blueprint("api", __name__)
 
-client = MongoClient(os.environ["MONGODB_URI"])
+client = MongoClient(os.environ["MONGODB_URI"], tls=True, tlsCAFile=certifi.where())
 db = client["CoreSystem"]
 users_collection = db["users"]
+modules_collection = db["modules"]
+module_participants_collection = db["module_participants"]
+lecture_attendances_collection = db["lecture_attendances"]
 
 def token_required(f):
     @wraps(f)
@@ -58,6 +62,7 @@ def register():
         {"$or": [{"username": username}, {"email": email}]},
         {"_id": 1, "username": 1, "email": 1},
     )
+
     if existing:
         return jsonify({"message": "User already exists"}), 409
 
@@ -90,4 +95,14 @@ def login():
 
     return jsonify({'token': token})
 
+@api.get("/count_attendance")
+@token_required
+def count_attendance(current_user):
+    query = {"user_id": current_user["_id"]}
+
+    attendance_count = lecture_attendances_collection.count_documents(query)
+    return jsonify({
+        'username': current_user["username"],
+        'attendance_count': attendance_count
+    })
 app.register_blueprint(api, url_prefix="/api/v1")
