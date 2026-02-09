@@ -100,16 +100,19 @@ const Attendance = () => {
 
             // 2. Log Attendance
             if (!selectedModule) throw new Error("Please select a module");
-            await logAttendance(selectedModule, imageId);
+            const response = await logAttendance(selectedModule, imageId);
 
             setIsCheckedIn(true);
             handleCameraClose();
 
-            // Add current user to list (simulated for immediate feedback)
-            setClassmates(prev => [
-                { id: 99, name: "You", avatar: "https://i.pravatar.cc/150?u=me", time: "Now" },
-                ...prev
-            ]);
+            // Update classmates list with real data from backend
+            // Add current user to list
+            const newClassmates = [
+                { id: 'me', name: "You", image_id: imageId, time: "Now" },
+                ...(response.classmates || [])
+            ];
+            setClassmates(newClassmates);
+
         } catch (err) {
             console.error("Attendance error:", err);
             setError(err.response?.data?.message || "Failed to verified attendance. Try again.");
@@ -203,7 +206,11 @@ const Attendance = () => {
                                     className="flex flex-col items-center"
                                 >
                                     <div className="relative">
-                                        <img src={student.avatar} alt={student.name} className="w-14 h-14 rounded-full border-2 border-white shadow-sm object-cover" />
+                                        {student.image_id ? (
+                                            <img src={`http://127.0.0.1:5000/api/v1/images/${student.image_id}`} alt={student.name} className="w-14 h-14 rounded-full border-2 border-white shadow-sm object-cover" />
+                                        ) : (
+                                            <div className="w-14 h-14 rounded-full border-2 border-white shadow-sm bg-gray-200 flex items-center justify-center text-gray-400">?</div>
+                                        )}
                                         {student.name === "You" && (
                                             <div className="absolute bottom-0 right-0 bg-green-500 w-4 h-4 rounded-full border-2 border-white"></div>
                                         )}
@@ -213,12 +220,6 @@ const Attendance = () => {
                                 </motion.div>
                             ))}
                         </AnimatePresence>
-                        <div className="flex flex-col items-center justify-center">
-                            <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 border-2 border-dashed border-gray-300">
-                                <span className="text-xs font-bold">+12</span>
-                            </div>
-                            <span className="text-xs mt-2 text-gray-400">Others</span>
-                        </div>
                     </div>
                 </motion.div>
             )}
