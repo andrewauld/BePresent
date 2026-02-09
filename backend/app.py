@@ -220,8 +220,7 @@ def get_attendance_history(current_user):
 
 
 @api.get("/images/<path:filename>")
-@token_required
-def get_image(current_user, filename):
+def get_image(filename):
     try:
         storage_client = storage.Client.from_service_account_json(GCP_CREDENTIALS_FILE_PATH)
 
